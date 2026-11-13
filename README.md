@@ -2,7 +2,17 @@
 
 Ushbu loyiha YouTube platformasidan videolarni tezkor va qulay tarzda yuklab olish uchun yaratilgan zamonaviy desktop ilovadir. Python va CustomTkinter texnologiyalari asosida qurilgan bo'lib, u foydalanuvchiga yuqori darajadagi interfeys va barqaror ish faoliyatini taqdim etadi.
 
-![App Screenshot](assets/screenshot.png)
+![YouTube Downloader](assets/screenshot.png)
+
+## 🖼 Ekran rasmlari
+
+| Bosh sahifa | Playlistdan tanlash |
+|---|---|
+| ![Bosh sahifa](assets/screenshots/home.png) | ![Playlist](assets/screenshots/playlist.png) |
+| **Yuklash jarayoni** | **Kutubxona** |
+| ![Yuklash jarayoni](assets/screenshots/progress.png) | ![Kutubxona](assets/screenshots/library.png) |
+| **Yorug' rejim** | **Sifatni tanlash** |
+| ![Yorug' rejim](assets/screenshots/light.png) | ![Sifatni tanlash](assets/screenshots/video.png) |
 
 ## ✨ Asosiy Imkoniyatlar (Features)
 
@@ -10,6 +20,7 @@ Ushbu loyiha YouTube platformasidan videolarni tezkor va qulay tarzda yuklab oli
 * **Sifat tanlash:** Video uchun mavjud barcha sifatlar (masalan 1080p, 720p, 480p) taxminiy hajmi bilan ro'yxatda ko'rsatiladi; standart tanlov — 720p. Faqat audio (MP3) ham yuklash mumkin.
 * **Playlistdan tanlab yuklash:** Playlistdagi videolar ro'yxati belgilash katakchalari bilan chiqadi — keraklilarini tanlang yoki hammasini yuklang. Playlist videolari alohida papkaga tartib raqami bilan saqlanadi; mavjud bo'lmagan videolar o'tkazib yuboriladi.
 * **Jonli jarayon:** Bosqich (video, audio, birlashtirish), foiz, tezlik, qolgan vaqt va playlistdagi joriy video ("Video 3 of 12") ko'rsatiladi. Yuklashni istalgan payt bekor qilish mumkin.
+* **Pauza va davom ettirish:** Yuklashni istalgan payt *Pause* bilan to'xtatib, *Resume* bilan to'xtagan joyidan davom ettirish mumkin (boshidan emas). Internet uzilsa yoki aloqa juda sekinlashib qotib qolsa, yuklash avtomatik pauza qilinadi va internet qaytgach o'zi davom etadi.
 * **Kutubxona:** Yuklangan fayllar muqovali kartochkalar to'rida (oyna kengligiga moslashadi); qidiruv, *Barchasi / Video / Audio* filtri, ijro etish (*Play*), papkada ko'rsatish va tasdiqlab o'chirish.
 * **Zamonaviy dizayn:** Yon panel (Download / Library), sifatni tanlash kartochkalari, yumaloq muqovalar, o'z chizilgan ikonkalar va bildirishnomalar (toast). Yuklash davom etayotganda yon panelda jonli holat ko'rinadi.
 * **Yorug' / Qorong'i rejim:** Yon paneldagi ☀ / ☾ / 🖥 tugmalari bilan Light, Dark yoki System mavzusi.
@@ -106,7 +117,7 @@ src/
 └── widgets/        # UI komponentlari (VideoItem)
 tests/              # pytest testlari
 packaging/          # build.py, PyInstaller spec, ffmpeg/Deno yuklovchilar, o'rnatuvchilar
-assets/             # ilova ikonkalari (icon.png / .ico / .icns)
+assets/             # ilova ikonkalari, shriftlar, ekran rasmlari (screenshots/)
 .github/workflows/  # Windows, macOS, Linux uchun avtomatik yig'ish
 ```
 

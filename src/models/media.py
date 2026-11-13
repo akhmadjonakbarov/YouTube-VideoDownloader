@@ -57,3 +57,5 @@ class DownloadResult:
     completed: int
     total: int
     cancelled: bool = False
+    paused: bool = False          # stopped part-way; run the same job again to continue
+    network_error: bool = False   # paused because the connection failed

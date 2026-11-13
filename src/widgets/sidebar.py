@@ -67,9 +67,8 @@ class Sidebar(ctk.CTkFrame):
         self.activity.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(self.activity, text="", image=icon("download", 16, theme.ACCENT), width=32, height=32,
                      corner_radius=10, fg_color=theme.ACCENT_SOFT).grid(row=0, column=0, rowspan=2, padx=(12, 10), pady=(12, 0))
-        ctk.CTkLabel(self.activity, text="Downloading", anchor="w", font=theme.font(12, "bold")).grid(
-            row=0, column=1, sticky="sw", pady=(12, 0)
-        )
+        self.activity_label = ctk.CTkLabel(self.activity, text="Downloading", anchor="w", font=theme.font(12, "bold"))
+        self.activity_label.grid(row=0, column=1, sticky="sw", pady=(12, 0))
         self.activity_percent = ctk.CTkLabel(self.activity, text="0%", text_color=theme.ACCENT_TEXT,
                                              font=theme.font(12, "bold"))
         self.activity_percent.grid(row=0, column=2, sticky="se", padx=(0, 14), pady=(12, 0))
@@ -150,12 +149,18 @@ class Sidebar(ctk.CTkFrame):
         self.activity_title.configure(text=truncate(title, 26))
         self.activity_percent.configure(text="0%")
         self.activity_bar.set(0)
+        self.set_activity_paused(False)
         self.activity.grid(row=4, column=0, sticky="sew", padx=16, pady=(0, 0))
 
     def update_activity(self, fraction: float):
         fraction = max(0.0, min(1.0, fraction))
         self.activity_bar.set(fraction)
         self.activity_percent.configure(text=f"{int(fraction * 100)}%")
+
+    def set_activity_paused(self, paused: bool, label: str | None = None):
+        self.activity_label.configure(text=label or ("Paused" if paused else "Downloading"))
+        self.activity_bar.configure(progress_color=theme.SUBTLE if paused else theme.ACCENT)
+        self.activity_percent.configure(text_color=theme.MUTED if paused else theme.ACCENT_TEXT)
 
     def hide_activity(self):
         self.activity.grid_forget()

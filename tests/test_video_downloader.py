@@ -276,3 +276,104 @@ def test_missing_tools_message():
     assert "brew install deno" in vd.missing_tools_message(True, False, "darwin")
     assert "winget install Gyan.FFmpeg" in vd.missing_tools_message(False, True, "win32")
     assert "deno.land/install.sh" in vd.missing_tools_message(True, False, "linux")
+
+
+# ------------------------------------------------------------ pause / resume
+
+def test_pause_raises_from_hooks(tmp_path, monkeypatch):
+    job = make_job(tmp_path, monkeypatch)
+    hook = job.options()["progress_hooks"][0]
+    job.pause_event.set()
+    with pytest.raises(vd.DownloadPaused):
+        hook({"status": "downloading", "info_dict": {}})
+    assert issubclass(vd.DownloadPaused, DownloadCancelled)  # yt-dlp lets it through ignoreerrors
+
+
+def test_run_returns_paused_and_can_resume(tmp_path, monkeypatch):
+    job = make_job(tmp_path, monkeypatch)
+    calls = []
+
+    def action(opts):
+        calls.append(1)
+        if len(calls) == 1:  # first run: user presses Pause mid-download
+            job.pause_event.set()
+            opts["progress_hooks"][0]({"status": "downloading", "info_dict": {"id": "a"}})
+        else:                # second run: continues and finishes
+            assert opts["continuedl"] is True
+            opts["post_hooks"][0]("/x/a.mp4")
+
+    monkeypatch.setattr(FakeYDL, "action", staticmethod(action))
+    monkeypatch.setattr(vd.yt_dlp, "YoutubeDL", FakeYDL)
+    first = job.run()
+    assert first.paused and not first.network_error and not first.cancelled
+    second = job.run()  # same job object = resume
+    assert not second.paused and second.completed == 1
+
+
+def test_network_failure_pauses_instead_of_failing(tmp_path, monkeypatch):
+    def action(opts):
+        raise vd.yt_dlp.utils.DownloadError(
+            "ERROR: unable to download video data: <urlopen error [Errno 8] nodename nor servname provided>")
+
+    monkeypatch.setattr(FakeYDL, "action", staticmethod(action))
+    monkeypatch.setattr(vd.yt_dlp, "YoutubeDL", FakeYDL)
+    result = make_job(tmp_path, monkeypatch).run()
+    assert result.paused and result.network_error
+
+
+def test_other_errors_still_fail(tmp_path, monkeypatch):
+    def action(opts):
+        raise vd.yt_dlp.utils.DownloadError("ERROR: [youtube] abc: Video unavailable")
+
+    monkeypatch.setattr(FakeYDL, "action", staticmethod(action))
+    monkeypatch.setattr(vd.yt_dlp, "YoutubeDL", FakeYDL)
+    with pytest.raises(vd.yt_dlp.utils.DownloadError):
+        make_job(tmp_path, monkeypatch).run()
+
+
+def test_playlist_video_failing_on_network_pauses_the_playlist(tmp_path, monkeypatch):
+    def action(opts):
+        opts["post_hooks"][0]("/x/1.mp4")  # first video done
+        # yt-dlp (ignoreerrors) logs the network failure of video 2 and carries on...
+        opts["logger"].error("ERROR: unable to download video data: The read operation timed out")
+        # ...but our logger requested a pause, so the next video's first hook stops everything.
+        opts["progress_hooks"][0]({"status": "downloading", "info_dict": {"id": "3"}})
+
+    monkeypatch.setattr(FakeYDL, "action", staticmethod(action))
+    monkeypatch.setattr(vd.yt_dlp, "YoutubeDL", FakeYDL)
+    result = make_job(tmp_path, monkeypatch, playlist=True, total=3).run()
+    assert result.paused and result.network_error and result.completed == 1
+
+
+def test_completed_files_not_counted_twice_after_resume(tmp_path, monkeypatch):
+    job = make_job(tmp_path, monkeypatch)
+    post = job.options()["post_hooks"][0]
+    post("/x/a.mp4")
+    post("/x/a.mp4")  # yt-dlp reports already-finished files again when a playlist resumes
+    assert job.completed == 1
+
+
+@pytest.mark.parametrize("message, expected", [
+    ("<urlopen error [Errno 8] nodename nor servname provided, or not known>", True),
+    ("The read operation timed out", True),
+    ("[Errno 101] Network is unreachable", True),
+    ("Connection reset by peer", True),
+    ("[download] Got error: 9699328 bytes read, 2884608 more expected", True),
+    ("<urlopen error [Errno -3] Temporary failure in name resolution>", True),
+    ("HTTP Error 403: Forbidden", False),
+    ("[youtube] abc: Video unavailable", False),
+    ("Sign in to confirm you're not a bot", False),
+])
+def test_is_network_error_messages(message, expected):
+    assert vd.is_network_error(message) is expected
+
+
+def test_is_network_error_follows_wrapped_exceptions():
+    import socket
+    try:
+        try:
+            raise socket.timeout("timed out")
+        except socket.timeout as inner:
+            raise vd.yt_dlp.utils.DownloadError("ERROR: something went wrong", exc_info=(type(inner), inner, None))
+    except vd.yt_dlp.utils.DownloadError as err:
+        assert vd.is_network_error(err)

@@ -4,7 +4,7 @@ from widgets.icons import render_icon
 from widgets.images import placeholder, rounded_thumbnail
 
 ICONS = ["play", "download", "library", "folder", "trash", "search", "sun", "moon", "monitor",
-         "clipboard", "refresh", "x", "check", "music", "alert", "list"]
+         "clipboard", "refresh", "x", "check", "music", "alert", "list", "pause", "wifi-off"]
 
 
 @pytest.mark.parametrize("name", ICONS)

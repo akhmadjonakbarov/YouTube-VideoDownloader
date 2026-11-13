@@ -1,13 +1,18 @@
+import http.client
 import io
 import os
 import re
 import shutil
+import socket
+import ssl
 import sys
 import threading
+import urllib.error
 from collections.abc import Callable
 
 import yt_dlp
 from PIL import Image
+from yt_dlp.networking.exceptions import TransportError
 from yt_dlp.utils import DownloadCancelled
 
 from config.paths import resource_path
@@ -244,6 +249,67 @@ def fetch_info(url: str, deno_path: str | None = None) -> MediaInfo:
 # Downloading
 # ---------------------------------------------------------------------------
 
+class DownloadPaused(DownloadCancelled):
+    """Raised from our hooks to stop a download so it can be resumed later.
+
+    It subclasses DownloadCancelled because yt-dlp always lets that one through
+    (even with ignoreerrors), so the whole download stops right away.
+    """
+
+
+_NETWORK_MESSAGE = re.compile(
+    r"timed? ?out|connection (?:reset|refused|aborted|closed)|network is unreachable|no route to host"
+    r"|temporary failure in name resolution|name or service not known|nodename nor servname"
+    r"|getaddrinfo failed|failed to resolve|no address associated|urlopen error|remote end closed"
+    r"|incompleteread|incomplete read|bytes read, \d+ more expected|eof occurred|connection broken|\[errno (?:8|-2|-3|51|54|60|61|65|101|104|110|111|113)\]"
+    r"|winerror 100(?:51|53|54|60|61|65)",
+    re.IGNORECASE,
+)
+
+
+def is_network_error(error: BaseException | str | None) -> bool:
+    """True if a failure looks like a dropped/unstable connection (worth retrying later)."""
+    if error is None:
+        return False
+    if isinstance(error, str):
+        return bool(_NETWORK_MESSAGE.search(error))
+    seen = set()
+    current = error
+    while current is not None and id(current) not in seen and len(seen) < 8:
+        seen.add(id(current))
+        if isinstance(current, (TransportError, socket.timeout, TimeoutError, ConnectionError,
+                                urllib.error.URLError, ssl.SSLError, socket.gaierror, http.client.IncompleteRead)):
+            if not isinstance(current, urllib.error.HTTPError):  # a 403/404 is not a network problem
+                return True
+        if _NETWORK_MESSAGE.search(str(current)):
+            return True
+        exc_info = getattr(current, "exc_info", None)
+        nested = exc_info[1] if isinstance(exc_info, tuple) and len(exc_info) > 1 else None
+        current = nested or getattr(current, "cause", None) or current.__cause__ or current.__context__
+    return False
+
+
+class _YtDlpLogger:
+    """Receives yt-dlp's messages. In playlists yt-dlp skips failed videos (ignoreerrors),
+    so this is where we notice that a video failed because the connection dropped."""
+
+    def __init__(self, job: "DownloadJob"):
+        self.job = job
+
+    def debug(self, msg: str):
+        pass
+
+    def info(self, msg: str):
+        pass
+
+    def warning(self, msg: str):
+        pass
+
+    def error(self, msg: str):
+        if is_network_error(msg):
+            self.job.network_failed = True
+            self.job.pause_event.set()  # stop at the next video instead of failing them all
+
 def build_format(option: QualityOption, has_ffmpeg: bool) -> str:
     if option.audio_only:
         return "ba/b" if has_ffmpeg else "ba[ext=m4a]/ba/b"
@@ -282,14 +348,22 @@ class DownloadJob:
         self.total = total
         self.ffmpeg_location = ffmpeg_location
         self.deno_path = deno_path
-        self.completed = 0
+        self.pause_event = threading.Event()
+        self.network_failed = False
+        self.completed_files: set[str] = set()  # kept across pause/resume, so nothing is counted twice
         self._seen_ids: list[str] = []
+
+    @property
+    def completed(self) -> int:
+        return len(self.completed_files)
 
     # -- hooks (called by yt-dlp on the worker thread) --
 
     def _check_cancel(self):
         if self.cancel_event.is_set():
             raise DownloadCancelled()
+        if self.pause_event.is_set():
+            raise DownloadPaused()
 
     def _item(self, info: dict) -> tuple[int | None, int | None, str | None]:
         if not self.playlist:
@@ -320,9 +394,9 @@ class DownloadJob:
             number, count, title = self._item(d.get("info_dict") or {})
             self.on_progress(ProgressInfo(stage, None, None, None, number, count, title))
 
-    def _post_hook(self, _filepath: str):
+    def _post_hook(self, filepath: str):
         """Called once per finished file, after all post-processing."""
-        self.completed += 1
+        self.completed_files.add(os.path.abspath(filepath))
         number = len(self._seen_ids) if self.playlist else None
         self.on_progress(ProgressInfo("Saved", 1.0, item_number=number, item_count=self.total if self.playlist else None))
 
@@ -342,6 +416,9 @@ class DownloadJob:
             "quiet": True,
             "no_warnings": True,
             "noprogress": True,
+            "logger": _YtDlpLogger(self),
+            "continuedl": True,     # resume .part files after a pause
+            "socket_timeout": 20,   # a dead connection fails (and pauses) instead of hanging
             "writethumbnail": True,
             "progress_hooks": [self._progress_hook],
             "postprocessor_hooks": [self._postprocessor_hook],
@@ -367,15 +444,23 @@ class DownloadJob:
         return opts
 
     def run(self) -> DownloadResult:
+        """Download (or continue after a pause). Safe to call again with the same job."""
+        self.pause_event.clear()
+        self.network_failed = False
         try:
             with yt_dlp.YoutubeDL(self.options()) as ydl:
                 ydl.download([self.url])
-        except Exception:
+        except Exception as e:
             if self.cancel_event.is_set():
                 return DownloadResult(self.completed, self.total, cancelled=True)
+            network = self.network_failed or is_network_error(e)
+            if self.pause_event.is_set() or isinstance(e, DownloadPaused) or network:
+                return DownloadResult(self.completed, self.total, paused=True, network_error=network)
             raise
         if self.cancel_event.is_set():
             return DownloadResult(self.completed, self.total, cancelled=True)
+        if self.network_failed:  # a playlist video failed because the connection dropped
+            return DownloadResult(self.completed, self.total, paused=True, network_error=True)
         if self.playlist and self.total and self.completed == 0:
             raise RuntimeError("None of the selected videos could be downloaded.")
         return DownloadResult(self.completed, self.total)

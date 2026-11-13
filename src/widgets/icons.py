@@ -98,6 +98,14 @@ def render_icon(name: str, px: int, color: str) -> Image.Image:
         circle(12, 12, 9)
         line((12, 7.5), (12, 12.5))
         circle(12, 16.3, 1.2, filled=True)
+    elif name == "pause":
+        rrect(6.5, 5, 9.5, 19, 1.2, fill=color)
+        rrect(14.5, 5, 17.5, 19, 1.2, fill=color)
+    elif name == "wifi-off":
+        d.arc((2 * u, 5 * u, 22 * u, 25 * u), start=225, end=315, fill=color, width=w)
+        d.arc((6 * u, 9.5 * u, 18 * u, 21.5 * u), start=225, end=315, fill=color, width=w)
+        circle(12, 18.5, 1.6, filled=True)
+        line((4, 3.5), (20, 20.5))
     elif name == "list":
         for y in (6, 12, 18):
             circle(4.5, y, 1.3, filled=True)

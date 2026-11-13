@@ -2,6 +2,7 @@ import queue
 import shutil
 import sys
 import threading
+import time
 import tkinter
 
 import customtkinter as ctk
@@ -12,6 +13,7 @@ from config.settings import VIDEOS_FOLDER, AppSettings
 from models.media import DownloadResult, MediaInfo, ProgressInfo, QualityOption
 from models.video import Video
 from services.formatting import format_size
+from services.network import is_online
 from services.system import open_path, reveal_in_folder
 from services.video_downloader import (
     DownloadJob,
@@ -28,6 +30,14 @@ from widgets.sidebar import Sidebar
 from widgets.toast import Toast
 
 POLL_MS = 100
+
+# Auto-pause: when the speed stays below SLOW_BYTES_PER_SEC for STALL_SECONDS, the
+# connection counts as stalled. Downloads also pause as soon as the network is gone.
+SLOW_BYTES_PER_SEC = 16 * 1024
+STALL_SECONDS = 25
+NETWORK_CHECK_SECONDS = 3
+RESUME_DELAY = {"network": 3, "slow": 10}  # wait a little after the connection returns
+MAX_AUTO_RESUMES = 5                       # then stop retrying and ask the user
 
 
 class App(ctk.CTk):
@@ -50,6 +60,17 @@ class App(ctk.CTk):
         self.current_view = ""
         self.fetch_id = 0  # bumped per lookup, so results that arrive too late are ignored
         self.last_url_text = ""
+
+        # Download job state (pause / resume)
+        self.job: DownloadJob | None = None
+        self.job_title = ""
+        self.job_running = False           # a worker thread is downloading right now
+        self.pause_reason: str | None = None  # None (running) / "user" / "network" / "slow" / "failing"
+        self.paused_at = 0.0
+        self.last_good_progress = 0.0
+        self.downloading_stage = False
+        self.auto_resumes = 0
+        self.monitor_alive = False
 
         self.title(settings.title)
         self.geometry(settings.geometry)
@@ -75,7 +96,7 @@ class App(ctk.CTk):
 
         self.download_view = DownloadView(
             main, on_fetch=self.fetch, on_paste=self.paste_url, on_download=self.start_download,
-            on_cancel=self.cancel_download, audio_format="MP3" if self.has_ffmpeg else "M4A",
+            on_cancel=self.cancel_download, on_pause_toggle=self.toggle_pause, audio_format="MP3" if self.has_ffmpeg else "M4A",
             warning=missing_tools_message(self.has_ffmpeg, self.deno_path is not None),
         )
         self.library_view = LibraryView(
@@ -226,7 +247,7 @@ class App(ctk.CTk):
             return
         total = (len(items) if items else len(media.entries)) if media.is_playlist else 1
         self.cancel_event = threading.Event()
-        job = DownloadJob(
+        self.job = DownloadJob(
             media.url, option,
             on_progress=lambda p: self.events.put(("progress", p)),
             has_ffmpeg=self.has_ffmpeg,
@@ -237,11 +258,21 @@ class App(ctk.CTk):
             ffmpeg_location=self.ffmpeg_location,
             deno_path=self.deno_path,
         )
+        self.job_title = media.title
+        self.auto_resumes = 0
         self.set_busy(True)
         self.download_view.progress.start(media.title, media.thumbnail, media.is_playlist, total)
         self.download_view.show_progress()
         self.sidebar.show_activity(media.title)
-        threading.Thread(target=self._run_download, args=(job,), daemon=True).start()
+        self._run_job()
+        self._start_network_monitor()
+
+    def _run_job(self):
+        self.job_running = True
+        self.pause_reason = None
+        self.downloading_stage = False
+        self.last_good_progress = time.monotonic()
+        threading.Thread(target=self._run_download, args=(self.job,), daemon=True).start()
 
     def _run_download(self, job: DownloadJob):
         try:
@@ -251,20 +282,126 @@ class App(ctk.CTk):
         else:
             self.events.put(("download_done", result))
 
+    # ---------------------------------------------------------- pause / resume
+
+    def toggle_pause(self):
+        if not self.job:
+            return
+        if self.job_running and self.pause_reason is None:
+            self.pause_reason = "user"
+            self.job.pause_event.set()
+            self.download_view.progress.set_pausing()
+        elif not self.job_running:
+            self.resume_download(manual=True)
+
+    def resume_download(self, manual: bool = False):
+        if not self.job or self.job_running:
+            return
+        if manual:
+            self.auto_resumes = 0
+        self.download_view.progress.set_running()
+        self.sidebar.set_activity_paused(False)
+        self._run_job()
+
+    def _auto_pause(self, reason: str):
+        """Connection lost or stalled: stop now, continue automatically later."""
+        if not self.job or not self.job_running or self.pause_reason is not None:
+            return
+        self.pause_reason = reason
+        self.paused_at = time.monotonic()
+        self.job.pause_event.set()
+        self.download_view.progress.set_paused(reason, stopping=True)
+        self.sidebar.set_activity_paused(True, "Offline" if reason == "network" else "Stalled")
+        what = "Connection lost" if reason == "network" else "Connection stalled"
+        self.notify(f"{what}: download paused. It will resume automatically.", "warning", 6000)
+
+    def _on_network(self, online: bool):
+        if not self.job:
+            return
+        if not online and self.job_running and self.pause_reason is None:
+            self._auto_pause("network")
+        elif online and not self.job_running and self.pause_reason in RESUME_DELAY:
+            if time.monotonic() - self.paused_at < RESUME_DELAY[self.pause_reason]:
+                return
+            if self.auto_resumes >= MAX_AUTO_RESUMES:
+                self.pause_reason = "failing"  # stop retrying on our own; let the user decide
+                self.download_view.progress.set_paused("failing")
+                self.sidebar.set_activity_paused(True)
+                return
+            self.auto_resumes += 1
+            self.notify("Back online: resuming your download.", "info", 3000)
+            self.resume_download()
+
+    def _check_stall(self):
+        if (self.job_running and self.pause_reason is None and self.downloading_stage
+                and time.monotonic() - self.last_good_progress > STALL_SECONDS):
+            self._auto_pause("slow")
+
+    def _start_network_monitor(self):
+        if self.monitor_alive:
+            return
+        self.monitor_alive = True
+        threading.Thread(target=self._network_monitor, daemon=True).start()
+
+    def _network_monitor(self):
+        """Worker thread: check the connection every few seconds while a job exists."""
+        try:
+            while self.job is not None:
+                self.events.put(("network", is_online()))
+                for _ in range(NETWORK_CHECK_SECONDS * 10):
+                    if self.job is None:
+                        break
+                    time.sleep(0.1)
+        finally:
+            self.monitor_alive = False
+
+    # ------------------------------------------------------------- progress
+
     def cancel_download(self):
-        if self.cancel_event:
-            self.cancel_event.set()
+        if not self.job or not self.cancel_event:
+            return
+        self.cancel_event.set()
+        if self.job_running:
             self.download_view.progress.set_cancelling()
+        else:  # paused: nothing is running, finish right away
+            self._on_download_done(DownloadResult(self.job.completed, self.job.total, cancelled=True))
 
     def _on_progress(self, p: ProgressInfo):
-        overall = self.download_view.progress.set_progress(p)
-        self.sidebar.update_activity(overall)
+        now = time.monotonic()
+        if p.stage.startswith("Downloading"):
+            if not self.downloading_stage:
+                self.downloading_stage = True
+                self.last_good_progress = now
+            if p.speed and p.speed >= SLOW_BYTES_PER_SEC:
+                self.last_good_progress = now
+                self.auto_resumes = 0
+        else:
+            self.downloading_stage = False
         if p.stage == "Saved":
             self.load_videos()  # show each playlist item as soon as it's done
+        if self.pause_reason is not None:
+            return  # keep showing the paused state
+        overall = self.download_view.progress.set_progress(p)
+        self.sidebar.update_activity(overall)
 
     def _on_download_done(self, result: DownloadResult):
+        self.job_running = False
+        cancelled = result.cancelled or (self.cancel_event is not None and self.cancel_event.is_set())
+        if result.paused and not cancelled:
+            reason = self.pause_reason or ("network" if result.network_error else "user")
+            if result.network_error and reason == "user" and self.pause_reason is None:
+                reason = "network"
+            if self.pause_reason is None:  # yt-dlp hit a network error on its own
+                self.paused_at = time.monotonic()
+                if reason == "network":
+                    self.notify("Connection lost: download paused. It will resume automatically.", "warning", 6000)
+            self.pause_reason = reason
+            self.download_view.progress.set_paused(reason)
+            self.sidebar.set_activity_paused(True, {"network": "Offline", "slow": "Stalled"}.get(reason, "Paused"))
+            return
+
         self._end_download()
-        if result.cancelled:
+        if cancelled:
             message = "Download cancelled."
             if result.total > 1:
                 message += f" {result.completed} of {result.total} finished."
@@ -282,11 +419,15 @@ class App(ctk.CTk):
         self.load_videos()
 
     def _on_download_error(self, message: str):
+        self.job_running = False
         self._end_download()
         self.notify(f"Download failed: {message}", "error", 10000)
         self.load_videos()
 
     def _end_download(self):
+        self.job = None  # also stops the network monitor
+        self.job_running = False
+        self.pause_reason = None
         self.cancel_event = None
         self.set_busy(False)
         self.sidebar.hide_activity()
@@ -308,7 +449,7 @@ class App(ctk.CTk):
 
     def _on_url_cleared(self):
         if self.cancel_event is not None:
-            return  # a download is running: keep showing its progress
+            return  # a download is running or paused: keep showing its progress
         if self.busy:  # a lookup is running: forget its result
             self.fetch_id += 1
             self.set_busy(False)
@@ -327,6 +468,7 @@ class App(ctk.CTk):
             "progress": self._on_progress,
             "download_done": self._on_download_done,
             "download_error": self._on_download_error,
+            "network": self._on_network,
         }
         try:
             while True:
@@ -335,6 +477,7 @@ class App(ctk.CTk):
         except queue.Empty:
             pass
         self._watch_url()
+        self._check_stall()
         self.after(POLL_MS, self._process_events)
 
 

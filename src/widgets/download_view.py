@@ -25,6 +25,7 @@ class DownloadView(ctk.CTkFrame):
         on_paste: Callable[[], None],
         on_download: DownloadHandler,
         on_cancel: Callable[[], None],
+        on_pause_toggle: Callable[[], None],
         audio_format: str,
         warning: str | None = None,
     ):
@@ -97,7 +98,7 @@ class DownloadView(ctk.CTkFrame):
         self.preview = PreviewCard(self.preview_scroll, on_download=on_download, audio_format=audio_format,
                                    on_state_change=self._on_preview_state)
         self.preview.grid(row=0, column=0, sticky="ew")
-        self.progress = ProgressCard(self.content, on_cancel=on_cancel)
+        self.progress = ProgressCard(self.content, on_cancel=on_cancel, on_pause_toggle=on_pause_toggle)
 
         # --- Sticky action bar for playlists (always visible while scrolling the list) ---
         self.action_bar = ctk.CTkFrame(self, **theme.card(corner_radius=18))
