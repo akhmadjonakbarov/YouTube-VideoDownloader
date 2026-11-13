@@ -1,0 +1,31 @@
+[project]
+name = "youtube-videodownloader"
+version = "0.1.0"
+description = "Desktop app (CustomTkinter + yt-dlp) for downloading YouTube videos up to 720p"
+readme = "README.md"
+authors = [
+    { name = "Akhmadjon Akbarov", email = "akhmadjonakbarov@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "customtkinter>=6.0.0",
+    "pillow>=13.0.0",
+    "yt-dlp[default]>=2026.10.26",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+# Packaging into a standalone app: uv run --group build python packaging/build.py
+build = [
+    "pyinstaller>=6.11",
+]
+
+[tool.uv]
+# This is an application, not an installable package: code lives directly in src/.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

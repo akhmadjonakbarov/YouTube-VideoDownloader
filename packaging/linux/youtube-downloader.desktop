@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=YouTube Downloader
+Comment=Download YouTube videos, playlists and audio
+Exec=YouTubeDownloader
+Icon=youtube-downloader
+Terminal=false
+Categories=AudioVideo;Network;
+StartupWMClass=youtube-downloader
