@@ -24,6 +24,7 @@ class PlaylistEntry:
     index: int  # 1-based position in the playlist (used for yt-dlp's playlist_items)
     title: str
     duration: float | None = None
+    url: str | None = None  # the video's own link (lets several playlist videos download at once)
 
 
 @dataclass
@@ -50,6 +51,7 @@ class ProgressInfo:
     item_number: int | None = None  # playlist only
     item_count: int | None = None
     item_title: str | None = None
+    playlist_index: int | None = None  # position in the playlist (PlaylistEntry.index)
 
 
 @dataclass

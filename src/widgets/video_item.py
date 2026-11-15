@@ -1,10 +1,10 @@
 from collections.abc import Callable
-from datetime import datetime
 from tkinter import messagebox
 
 import customtkinter as ctk
 
 from config import theme
+from config.i18n import format_date, t
 from models.video import Video
 from services.formatting import truncate
 from widgets.hover import bind_click, bind_hover
@@ -48,7 +48,7 @@ class VideoCard(ctk.CTkFrame):
             details.append(truncate(video.folder_label, 28))
         details.append(video.size)
         if video.modified:
-            details.append(datetime.fromtimestamp(video.modified).strftime("%d %b %Y"))
+            details.append(format_date(video.modified))
         self.meta_label = ctk.CTkLabel(
             self, text="  ·  ".join(details), anchor="w", justify="left", wraplength=thumb_w,
             text_color=theme.MUTED, font=theme.font(12),
@@ -59,7 +59,7 @@ class VideoCard(ctk.CTkFrame):
         actions.grid(row=3, column=0, sticky="sew", padx=PAD, pady=(14, PAD))
         actions.grid_columnconfigure(0, weight=1)
         ctk.CTkButton(
-            actions, text=" Play", width=92, height=36, corner_radius=11, font=theme.font(13, "bold"),
+            actions, text=f" {t('card.play')}", width=100, height=36, corner_radius=11, font=theme.font(13, "bold"),
             image=icon("play", 13, theme.WHITE), command=lambda: on_open(video), **theme.primary(),
         ).grid(row=0, column=0, sticky="w")
         ctk.CTkButton(
@@ -79,14 +79,17 @@ class VideoCard(ctk.CTkFrame):
     def set_card_width(self, width: int):
         """Resize the thumbnail and text wrapping to fit a grid column."""
         thumb_w = max(120, width - 2 * PAD)
+        if thumb_w == getattr(self, "_thumb_w", None):
+            return
+        self._thumb_w = thumb_w
         self.thumb_img.configure(size=(thumb_w, thumb_w * 9 // 16))
         self.title_label.configure(wraplength=thumb_w - 8)
         self.meta_label.configure(wraplength=thumb_w - 8)
 
     def confirm_delete(self):
         confirmed = messagebox.askyesno(
-            title="Delete download",
-            message=f'Delete "{self.video.title}"?\n\nThe file will be permanently removed.',
+            title=t("delete.title"),
+            message=t("delete.message", title=self.video.title),
             icon=messagebox.WARNING,
             parent=self.winfo_toplevel(),
         )

@@ -30,8 +30,10 @@ class Toast(ctk.CTkFrame):
             command=self.hide, **{k: v for k, v in theme.ghost().items() if k != "text_color"},
         ).grid(row=0, column=3, padx=(0, 8))
         self.hide_job: str | None = None
+        self.current: tuple[str, str] | None = None  # (message, kind) while visible
 
     def show(self, message: str, kind: str = "info", duration_ms: int = 5000):
+        self.current = (message, kind)
         glyph, color = _KINDS.get(kind, _KINDS["info"])
         self.stripe.configure(fg_color=color)
         self.icon_label.configure(image=icon(glyph, 18, color))
@@ -43,6 +45,7 @@ class Toast(ctk.CTkFrame):
         self.hide_job = self.after(duration_ms, self.hide)
 
     def hide(self):
+        self.current = None
         if self.hide_job:
             self.after_cancel(self.hide_job)
             self.hide_job = None

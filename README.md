@@ -9,20 +9,26 @@ Ushbu loyiha YouTube platformasidan videolarni tezkor va qulay tarzda yuklab oli
 | Bosh sahifa | Playlistdan tanlash |
 |---|---|
 | ![Bosh sahifa](assets/screenshots/home.png) | ![Playlist](assets/screenshots/playlist.png) |
-| **Yuklash jarayoni** | **Kutubxona** |
-| ![Yuklash jarayoni](assets/screenshots/progress.png) | ![Kutubxona](assets/screenshots/library.png) |
+| **Yuklash navbati** | **Kutubxona** |
+| ![Yuklash navbati](assets/screenshots/queue.png) | ![Kutubxona](assets/screenshots/library.png) |
 | **Yorug' rejim** | **Sifatni tanlash** |
 | ![Yorug' rejim](assets/screenshots/light.png) | ![Sifatni tanlash](assets/screenshots/video.png) |
+| **Playlist videolari** | |
+| ![Playlist videolari](assets/screenshots/playlist-progress.png) | |
 
 ## ✨ Asosiy Imkoniyatlar (Features)
 
 * **Video va playlist yuklash:** Havolani joylashtiring, *Fetch* tugmasini bosing — dastur video yoki playlistni aniqlab, oldindan ko'rinishini (muqova, nom, kanal, davomiylik) ko'rsatadi.
 * **Sifat tanlash:** Video uchun mavjud barcha sifatlar (masalan 1080p, 720p, 480p) taxminiy hajmi bilan ro'yxatda ko'rsatiladi; standart tanlov — 720p. Faqat audio (MP3) ham yuklash mumkin.
 * **Playlistdan tanlab yuklash:** Playlistdagi videolar ro'yxati belgilash katakchalari bilan chiqadi — keraklilarini tanlang yoki hammasini yuklang. Playlist videolari alohida papkaga tartib raqami bilan saqlanadi; mavjud bo'lmagan videolar o'tkazib yuboriladi.
-* **Jonli jarayon:** Bosqich (video, audio, birlashtirish), foiz, tezlik, qolgan vaqt va playlistdagi joriy video ("Video 3 of 12") ko'rsatiladi. Yuklashni istalgan payt bekor qilish mumkin.
-* **Pauza va davom ettirish:** Yuklashni istalgan payt *Pause* bilan to'xtatib, *Resume* bilan to'xtagan joyidan davom ettirish mumkin (boshidan emas). Internet uzilsa yoki aloqa juda sekinlashib qotib qolsa, yuklash avtomatik pauza qilinadi va internet qaytgach o'zi davom etadi.
+* **Yuklash navbati:** Havolalarni ketma-ket qo'shib, *Download* tugmasini bosavering — har biri *Navbat* sahifasiga tushadi va o'z foizi, tezligi, qolgan vaqti, pauza va bekor qilish tugmalari bilan ko'rinadi. Bir vaqtda nechta video yuklanishini *Bir vaqtda: 1–5* tanlaydi (standart — 2), qolganlari navbat kutadi. Tugaganlarni bir bosishda tozalash, xato bo'lganini qayta urinish mumkin; yuklash davom etayotganda dasturni yopsangiz, tasdiq so'raladi.
+* **Playlistdan bir nechta videoni birdaniga yuklash:** Playlist videolari alohida-alohida yuklanadi, shuning uchun *Bir vaqtda* sozlamasiga qarab bir nechtasi parallel ketadi (masalan, 3 tanlansa — 3 ta video birdaniga). Biror video ochilmasa, qolganlari to'xtamaydi. Pauza, bekor qilish va internet uzilganda avtomatik pauza butun playlistga birdaniga ta'sir qiladi. Fayllar avvalgidek `Playlist nomi/003 - Video nomi.mp4` ko'rinishida saqlanadi.
+* **Playlist tafsilotlari:** Navbatdagi playlistni bosing (yoki *Videolarni ko'rish*) — playlistdagi har bir video holati bilan chiqadi: saqlangan, hozir yuklanayotgan (foiz, tezlik, qolgan vaqt), navbatda kutayotgan va o'tkazib yuborilgan (mavjud emas). Yuqorida umumiy hisob (Saqlandi / Yuklanmoqda / Kutmoqda / O'tkazib yuborildi) va pauza, bekor qilish tugmalari; ro'yxat yuklanayotgan videoga o'zi aylanib boradi.
+* **Jonli jarayon:** Bosqich (video, audio, birlashtirish), foiz, tezlik, qolgan vaqt va playlistdagi joriy video ("Video 3 of 12") ko'rsatiladi; yon panelda umumiy holat va faol yuklamalar soni chiqadi.
+* **Pauza va davom ettirish:** Har bir yuklamani istalgan payt *Pause* bilan to'xtatib, *Resume* bilan to'xtagan joyidan davom ettirish mumkin (boshidan emas). Internet uzilsa yoki aloqa juda sekinlashib qotib qolsa, faol yuklamalar avtomatik pauza qilinadi va internet qaytgach o'zi davom etadi.
 * **Kutubxona:** Yuklangan fayllar muqovali kartochkalar to'rida (oyna kengligiga moslashadi); qidiruv, *Barchasi / Video / Audio* filtri, ijro etish (*Play*), papkada ko'rsatish va tasdiqlab o'chirish.
-* **Zamonaviy dizayn:** Yon panel (Download / Library), sifatni tanlash kartochkalari, yumaloq muqovalar, o'z chizilgan ikonkalar va bildirishnomalar (toast). Yuklash davom etayotganda yon panelda jonli holat ko'rinadi.
+* **Zamonaviy dizayn:** Yon panel (Download / Navbat / Library), sifatni tanlash kartochkalari, yumaloq muqovalar, o'z chizilgan ikonkalar va bildirishnomalar (toast). Yuklash davom etayotganda yon panelda jonli holat ko'rinadi.
+* **Ikki til — o'zbek va ingliz:** Birinchi ishga tushirishda dastur tizim tilini aniqlaydi (macOS, Windows, Linux) — tizim o'zbekcha bo'lsa, interfeys o'zbekcha ochiladi. Yon paneldagi *English / O'zbekcha* tugmasi bilan istalgan payt almashtirish mumkin; tanlov va mavzu (yorug'/qorong'i) eslab qolinadi.
 * **Yorug' / Qorong'i rejim:** Yon paneldagi ☀ / ☾ / 🖥 tugmalari bilan Light, Dark yoki System mavzusi.
 * **Barqaror interfeys:** Barcha yuklash ishlari fon oqimida bajariladi, interfeys qotib qolmaydi.
 

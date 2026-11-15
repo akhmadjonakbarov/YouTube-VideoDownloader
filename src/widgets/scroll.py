@@ -3,6 +3,27 @@ import customtkinter as ctk
 from config import theme
 
 
+class _Size:
+    def __init__(self, widget):
+        self.width, self.height = widget.winfo_width(), widget.winfo_height()
+
+
+def bind_visible_resize(view, target, handler) -> None:
+    """Call handler(event) when `target` is resized, but only while `view` is on screen.
+
+    A hidden page's size is its *requested* size, which depends on its contents. Handlers
+    that re-wrap or re-flow contents to the width could then feed back into the width
+    and loop forever. When the page is shown again, the handler runs with the real size.
+    """
+    def on_configure(event):
+        if view.winfo_ismapped():
+            handler(event)
+
+    target.bind("<Configure>", on_configure, add="+")
+    view.bind("<Map>", lambda e: e.widget is view and view.after_idle(
+        lambda: target.winfo_exists() and handler(_Size(target))), add="+")
+
+
 class AutoScrollFrame(ctk.CTkScrollableFrame):
     """A vertical CTkScrollableFrame whose scrollbar only shows when the content overflows.
 

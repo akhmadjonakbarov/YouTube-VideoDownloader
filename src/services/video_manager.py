@@ -34,15 +34,19 @@ class VideoManager:
         """Finished downloads (including playlist sub-folders), newest first."""
         videos = []
         for path in self.videos_folder.rglob("*"):
-            if not self._is_media(path):
+            try:  # runs in a worker thread: files can disappear while we look
+                if not self._is_media(path):
+                    continue
+                stat = path.stat()
+                image = self.get_thumbnail(path)
+            except OSError:
                 continue
-            stat = path.stat()
             folder = None if path.parent == self.videos_folder else str(path.parent.relative_to(self.videos_folder))
             videos.append(
                 Video(
                     path=path,
                     size=format_size(stat.st_size),
-                    image=self.get_thumbnail(path),
+                    image=image,
                     folder_label=folder,
                     is_audio=path.suffix.lower() in AUDIO_EXTENSIONS,
                     modified=stat.st_mtime,

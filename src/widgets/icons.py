@@ -110,6 +110,11 @@ def render_icon(name: str, px: int, color: str) -> Image.Image:
         for y in (6, 12, 18):
             circle(4.5, y, 1.3, filled=True)
             line((9, y), (20, y))
+    elif name == "arrow-left":
+        line((19.5, 12), (4.5, 12))
+        line((10.5, 6), (4.5, 12), (10.5, 18))
+    elif name == "chevron-right":
+        line((9.5, 5.5), (16, 12), (9.5, 18.5))
     else:
         raise ValueError(f"Unknown icon: {name}")
 

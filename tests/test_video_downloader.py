@@ -78,6 +78,30 @@ def test_parse_playlist_info_keeps_positions_and_skips_missing():
     assert media.qualities[-1].audio_only
 
 
+def test_playlist_entries_keep_their_own_links():
+    info = {"_type": "playlist", "title": "PL", "entries": [
+        {"title": "A", "url": "https://www.youtube.com/watch?v=a", "ie_key": "Youtube"},
+        {"title": "B", "url": "https://www.youtube.com/playlist?list=x", "ie_key": "YoutubeTab"},  # nested list
+        {"title": "C", "url": "c-id-only"},
+        {"title": "D", "webpage_url": "https://example.com/d", "url": "https://cdn/d.mp4"},
+    ]}
+    media = vd.parse_info(info, "u", has_ffmpeg=True)
+    # B and C have no usable link of their own, so the playlist downloads one by one
+    assert [e.url for e in media.entries] == [None, None, None, None]
+
+    info["entries"] = [info["entries"][0], {"title": "D", "webpage_url": "https://example.com/list", "url": "https://cdn/d.mp4"}]
+    media = vd.parse_info(info, "https://example.com/list", has_ffmpeg=True)
+    assert [e.url for e in media.entries] == ["https://www.youtube.com/watch?v=a", "https://cdn/d.mp4"]
+
+
+def test_playlist_links_that_are_not_separate_videos_are_ignored():
+    page = "https://example.com/list"
+    same = {"_type": "playlist", "title": "PL", "entries": [{"title": "A", "url": page}, {"title": "B", "url": page}]}
+    assert [e.url for e in vd.parse_info(same, page, True).entries] == [None, None]
+    dup = {"_type": "playlist", "title": "PL", "entries": [{"title": "A", "url": "https://x/1"}, {"title": "B", "url": "https://x/1"}]}
+    assert [e.url for e in vd.parse_info(dup, page, True).entries] == [None, None]
+
+
 # ------------------------------------------------------------ build_format
 
 def test_build_format():
@@ -109,6 +133,12 @@ def test_single_video_options(tmp_path, monkeypatch):
     assert opts["merge_output_format"] == "mp4/mkv"
     assert opts["outtmpl"] == str(tmp_path / "%(title)s.%(ext)s")
     assert "playlist_items" not in opts
+
+
+def test_single_playlist_video_goes_to_the_playlist_folder(tmp_path, monkeypatch):
+    opts = make_job(tmp_path, monkeypatch, folder="Best of 100% / Part 1", index=7).options()
+    assert opts["noplaylist"] is True and opts["playlist_items"] == "1"
+    assert opts["outtmpl"] == str(tmp_path / "Best of 100%% ⧸ Part 1" / "007 - %(title)s.%(ext)s")
 
 
 def test_playlist_options(tmp_path, monkeypatch):
@@ -144,11 +174,11 @@ def test_progress_events_number_playlist_items(tmp_path, monkeypatch):
           "info_dict": {"id": "b", "title": "B", "vcodec": "avc1"}})
 
     assert [(e.stage, e.fraction, e.item_number, e.item_count) for e in events] == [
-        ("Downloading video", 0.25, 1, 2),
-        ("Downloading audio", None, 1, 2),
-        ("Merging video and audio", None, 1, 2),
-        ("Saved", 1.0, 1, 2),
-        ("Downloading video", 0.25, 2, 2),
+        ("download_video", 0.25, 1, 2),
+        ("download_audio", None, 1, 2),
+        ("merging", None, 1, 2),
+        ("saved", 1.0, 1, 2),
+        ("download_video", 0.25, 2, 2),
     ]
     assert events[0].speed == 1000 and events[0].eta == 5 and events[0].item_title == "A"
     assert job.completed == 1

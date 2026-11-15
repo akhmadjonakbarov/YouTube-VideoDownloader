@@ -7,14 +7,16 @@ import socket
 import ssl
 import sys
 import threading
+import time
 import urllib.error
 from collections.abc import Callable
 
 import yt_dlp
 from PIL import Image
 from yt_dlp.networking.exceptions import TransportError
-from yt_dlp.utils import DownloadCancelled
+from yt_dlp.utils import DownloadCancelled, sanitize_filename
 
+from config.i18n import t
 from config.paths import resource_path
 from config.settings import DEFAULT_HEIGHT, PLAYLIST_HEIGHTS, VIDEOS_FOLDER
 from models.media import (
@@ -30,10 +32,24 @@ ProgressCallback = Callable[[ProgressInfo], None]
 
 PREVIEW_THUMBNAIL_SIZE = (480, 270)
 
-# yt-dlp postprocessor keys -> what we show the user while they run.
+# yt-dlp calls the progress hook for every chunk (many times a second). Passing each
+# one to the UI makes it redraw constantly, so "downloading" updates are sent at most
+# this often per job. Stage changes and finished files are always sent right away.
+PROGRESS_INTERVAL = 0.25
+
+# Progress stages are short codes; the UI translates them (see "stage.*" in config/i18n.py).
+STAGE_DOWNLOAD_VIDEO = "download_video"
+STAGE_DOWNLOAD_AUDIO = "download_audio"
+STAGE_PROCESSING = "processing"
+STAGE_MERGING = "merging"
+STAGE_CONVERTING = "converting"
+STAGE_SAVED = "saved"
+DOWNLOAD_STAGES = (STAGE_DOWNLOAD_VIDEO, STAGE_DOWNLOAD_AUDIO)
+
+# yt-dlp postprocessor keys -> stage shown while they run.
 _POSTPROCESSOR_STAGES = {
-    "Merger": "Merging video and audio",
-    "ExtractAudio": "Converting to MP3",
+    "Merger": STAGE_MERGING,
+    "ExtractAudio": STAGE_CONVERTING,
 }
 
 
@@ -102,13 +118,13 @@ def missing_tools_message(has_ffmpeg: bool, has_deno: bool, platform: str = sys.
     else:
         parts = [] if has_ffmpeg else ["sudo apt install ffmpeg"]
         parts += [] if has_deno else ["curl -fsSL https://deno.land/install.sh | sh"]
-        install = "  and  ".join(parts)
+        install = " && ".join(parts)
     problems = []
     if not has_deno:
-        problems.append("Deno isn't installed, so many YouTube videos can't be downloaded")
+        problems.append(t("warning.deno"))
     if not has_ffmpeg:
-        problems.append("ffmpeg isn't installed, so only lower qualities (often 360p) and M4A audio are available")
-    return f"{'; '.join(problems)}. To fix it, install: {install}"
+        problems.append(t("warning.ffmpeg"))
+    return f"{'; '.join(problems)}. {t('warning.fix', command=install)}"
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +200,17 @@ def _thumbnail_url(info: dict) -> str | None:
     return thumbs[-1].get("url") if thumbs else None
 
 
+def _entry_url(entry: dict) -> str | None:
+    """A playlist video's own link, if it points to a single video (not a nested playlist)."""
+    if entry.get("_type") == "playlist" or entry.get("ie_key") in ("YoutubeTab", "YoutubePlaylist"):
+        return None
+    for key in ("url", "webpage_url"):  # "url" is the video itself; "webpage_url" may be the list page
+        url = entry.get(key)
+        if isinstance(url, str) and url.startswith(("http://", "https://")):
+            return url
+    return None
+
+
 def parse_info(info: dict, url: str, has_ffmpeg: bool) -> MediaInfo:
     uploader = info.get("uploader") or info.get("channel")
     page_url = info.get("webpage_url") or url
@@ -195,9 +222,16 @@ def parse_info(info: dict, url: str, has_ffmpeg: bool) -> MediaInfo:
             if not entry:
                 continue  # unavailable/private video: keep numbering, skip it
             entries.append(
-                PlaylistEntry(index=index, title=entry.get("title") or "Untitled", duration=entry.get("duration"))
+                PlaylistEntry(index=index, title=entry.get("title") or "Untitled", duration=entry.get("duration"),
+                              url=_entry_url(entry))
             )
             thumb = thumb or _thumbnail_url(entry)
+        # Videos are downloaded separately (several at once) only if each has its own link.
+        # Otherwise (shared or missing links) the whole playlist downloads one by one.
+        links = [e.url for e in entries]
+        if None in links or len(set(links)) != len(links) or page_url in links or url in links:
+            for e in entries:
+                e.url = None
         return MediaInfo(
             url=page_url,
             title=info.get("title") or "Playlist",
@@ -337,6 +371,8 @@ class DownloadJob:
         total: int = 1,
         ffmpeg_location: str | None = None,
         deno_path: str | None = None,
+        folder: str | None = None,
+        index: int | None = None,
     ):
         self.url = url
         self.option = option
@@ -348,10 +384,15 @@ class DownloadJob:
         self.total = total
         self.ffmpeg_location = ffmpeg_location
         self.deno_path = deno_path
+        self.folder = folder  # one video of a playlist: save it as <playlist>/<index> - <title>
+        self.index = index
         self.pause_event = threading.Event()
         self.network_failed = False
         self.completed_files: set[str] = set()  # kept across pause/resume, so nothing is counted twice
         self._seen_ids: list[str] = []
+        self.current_index: int | None = None  # playlist position of the video being processed
+        self._last_emit = 0.0
+        self._last_key: tuple | None = None  # (stage, file) of the last progress sent
 
     @property
     def completed(self) -> int:
@@ -368,6 +409,8 @@ class DownloadJob:
     def _item(self, info: dict) -> tuple[int | None, int | None, str | None]:
         if not self.playlist:
             return None, None, info.get("title")
+        if info.get("playlist_index"):
+            self.current_index = int(info["playlist_index"])
         item_id = info.get("id") or info.get("webpage_url") or info.get("title") or "?"
         if item_id not in self._seen_ids:
             self._seen_ids.append(item_id)
@@ -381,30 +424,46 @@ class DownloadJob:
             total_bytes = d.get("total_bytes") or d.get("total_bytes_estimate")
             fraction = d.get("downloaded_bytes", 0) / total_bytes if total_bytes else None
             kind = "audio" if self.option.audio_only or info.get("vcodec") == "none" else "video"
+            stage = STAGE_DOWNLOAD_AUDIO if kind == "audio" else STAGE_DOWNLOAD_VIDEO
+            key = (stage, d.get("filename"), number)
+            now = time.monotonic()
+            if key == self._last_key and now - self._last_emit < PROGRESS_INTERVAL:
+                return  # too soon after the last update for this file
+            self._last_key, self._last_emit = key, now
             self.on_progress(
-                ProgressInfo(f"Downloading {kind}", fraction, d.get("speed"), d.get("eta"), number, count, title)
+                ProgressInfo(stage, fraction, d.get("speed"), d.get("eta"), number, count, title, self._index())
             )
         elif d["status"] == "finished":
-            self.on_progress(ProgressInfo("Processing", 1.0, None, None, number, count, title))
+            self._last_key = None
+            self.on_progress(ProgressInfo(STAGE_PROCESSING, 1.0, None, None, number, count, title, self._index()))
+
+    def _index(self) -> int | None:
+        return self.current_index if self.playlist else None
 
     def _postprocessor_hook(self, d: dict):
         self._check_cancel()
         stage = _POSTPROCESSOR_STAGES.get(d.get("postprocessor"))
         if d["status"] == "started" and stage:
             number, count, title = self._item(d.get("info_dict") or {})
-            self.on_progress(ProgressInfo(stage, None, None, None, number, count, title))
+            self.on_progress(ProgressInfo(stage, None, None, None, number, count, title, self._index()))
 
     def _post_hook(self, filepath: str):
         """Called once per finished file, after all post-processing."""
         self.completed_files.add(os.path.abspath(filepath))
         number = len(self._seen_ids) if self.playlist else None
-        self.on_progress(ProgressInfo("Saved", 1.0, item_number=number, item_count=self.total if self.playlist else None))
+        self.on_progress(ProgressInfo(STAGE_SAVED, 1.0, item_number=number,
+                                      item_count=self.total if self.playlist else None, playlist_index=self._index()))
 
     def options(self) -> dict:
         VIDEOS_FOLDER.mkdir(parents=True, exist_ok=True)
         name = "%(title)s.%(ext)s"
         if self.playlist:
             name = "%(playlist_title)s/%(playlist_index)03d - %(title)s.%(ext)s"
+        elif self.folder:
+            # Same names as a whole-playlist download, so both kinds land in one folder.
+            folder = sanitize_filename(self.folder).replace("%", "%%") or "Playlist"
+            prefix = f"{self.index:03d} - " if self.index else ""
+            name = f"{folder}/{prefix}%(title)s.%(ext)s"
 
         opts = {
             "format": build_format(self.option, self.has_ffmpeg),
@@ -429,6 +488,8 @@ class DownloadJob:
         opts.update(js_runtime_options(self.deno_path))
         if self.items:
             opts["playlist_items"] = ",".join(str(i) for i in self.items)
+        elif self.folder:
+            opts["playlist_items"] = "1"  # one playlist video: never more, even if the link is a list
 
         postprocessors = []
         if self.has_ffmpeg:

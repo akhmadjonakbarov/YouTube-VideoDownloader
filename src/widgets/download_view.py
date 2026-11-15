@@ -3,20 +3,18 @@ from collections.abc import Callable
 import customtkinter as ctk
 
 from config import theme
+from config.i18n import t
 from models.media import MediaInfo
 from widgets.art import empty_illustration, hero_banner
 from widgets.icons import icon
 from widgets.preview_card import DownloadHandler, PreviewCard
-from widgets.progress_card import ProgressCard
-from widgets.scroll import AutoScrollFrame
+from widgets.scroll import AutoScrollFrame, bind_visible_resize
 
 HERO_HEIGHT = 168
-HERO_TITLE = "Download anything from YouTube"
-HERO_SUBTITLE = "Videos, whole playlists and MP3 audio, in the quality you choose."
 
 
 class DownloadView(ctk.CTkFrame):
-    """The 'Download' page: hero banner, link bar, then empty state / preview / progress."""
+    """The 'Download' page: hero banner, link bar, then empty state / preview."""
 
     def __init__(
         self,
@@ -24,8 +22,6 @@ class DownloadView(ctk.CTkFrame):
         on_fetch: Callable[[], None],
         on_paste: Callable[[], None],
         on_download: DownloadHandler,
-        on_cancel: Callable[[], None],
-        on_pause_toggle: Callable[[], None],
         audio_format: str,
         warning: str | None = None,
     ):
@@ -40,13 +36,13 @@ class DownloadView(ctk.CTkFrame):
         self.header.grid(row=0, column=0, sticky="ew")
         self.header.grid_columnconfigure(0, weight=1)
         self.hero = ctk.CTkLabel(self.header, text="", height=HERO_HEIGHT)
-        self.hero.bind("<Configure>", self._on_hero_resize)
+        bind_visible_resize(self, self.hero, self._on_hero_resize)
         # Compact title used once a video is previewed/downloading, to leave room for it.
         self.compact_title = ctk.CTkFrame(self.header, fg_color="transparent")
-        ctk.CTkLabel(self.compact_title, text="New download", anchor="w", font=theme.font(30, "bold")).grid(
+        ctk.CTkLabel(self.compact_title, text=t("download.title"), anchor="w", font=theme.font(30, "bold")).grid(
             row=0, column=0, sticky="w"
         )
-        ctk.CTkLabel(self.compact_title, text=HERO_SUBTITLE, anchor="w", text_color=theme.MUTED,
+        ctk.CTkLabel(self.compact_title, text=t("download.hero_subtitle"), anchor="w", text_color=theme.MUTED,
                      font=theme.font(14)).grid(row=1, column=0, sticky="w", pady=(2, 0))
 
         # --- Link bar ---
@@ -57,17 +53,17 @@ class DownloadView(ctk.CTkFrame):
             row=0, column=0, padx=(20, 6), pady=10
         )
         self.url_input = ctk.CTkEntry(
-            bar, placeholder_text="Paste a YouTube video or playlist link…", height=46, border_width=0,
+            bar, placeholder_text=t("download.placeholder"), height=46, border_width=0,
             fg_color="transparent", font=theme.font(15), placeholder_text_color=theme.SUBTLE,
         )
         self.url_input.grid(row=0, column=1, sticky="ew", pady=10)
         self.url_input.bind("<Return>", lambda _e: on_fetch())
         ctk.CTkButton(
-            bar, text=" Paste", width=100, height=44, corner_radius=13, font=theme.font(13, "bold"),
+            bar, text=f" {t('download.paste')}", width=110, height=44, corner_radius=13, font=theme.font(13, "bold"),
             image=icon("clipboard", 16, theme.TEXT), command=on_paste, **theme.secondary(),
         ).grid(row=0, column=2, padx=(8, 6), pady=10)
         self.fetch_button = ctk.CTkButton(
-            bar, text="Fetch", width=118, height=44, corner_radius=13, font=theme.font(14, "bold"),
+            bar, text=t("download.fetch"), width=118, height=44, corner_radius=13, font=theme.font(14, "bold"),
             command=on_fetch, **theme.primary(),
         )
         self.fetch_button.grid(row=0, column=3, padx=(0, 10), pady=10)
@@ -85,7 +81,7 @@ class DownloadView(ctk.CTkFrame):
                 text=warning,
             ).grid(row=0, column=1, sticky="ew", padx=(0, 16), pady=12)
 
-        # --- Content: one of empty state / preview / progress ---
+        # --- Content: empty state or preview ---
         self.content = ctk.CTkFrame(self, fg_color="transparent")
         self.content.grid(row=4, column=0, sticky="nsew", pady=(18, 0))
         self.content.grid_columnconfigure(0, weight=1)
@@ -98,7 +94,6 @@ class DownloadView(ctk.CTkFrame):
         self.preview = PreviewCard(self.preview_scroll, on_download=on_download, audio_format=audio_format,
                                    on_state_change=self._on_preview_state)
         self.preview.grid(row=0, column=0, sticky="ew")
-        self.progress = ProgressCard(self.content, on_cancel=on_cancel, on_pause_toggle=on_pause_toggle)
 
         # --- Sticky action bar for playlists (always visible while scrolling the list) ---
         self.action_bar = ctk.CTkFrame(self, **theme.card(corner_radius=18))
@@ -108,7 +103,7 @@ class DownloadView(ctk.CTkFrame):
         self.action_summary = ctk.CTkLabel(self.action_bar, text="", anchor="w", font=theme.font(14, "bold"))
         self.action_summary.grid(row=0, column=1, sticky="w")
         self.action_button = ctk.CTkButton(
-            self.action_bar, text="Download", width=230, height=46, corner_radius=14, font=theme.font(15, "bold"),
+            self.action_bar, text=t("button.download_video"), width=250, height=46, corner_radius=14, font=theme.font(15, "bold"),
             image=icon("download", 18, theme.WHITE), command=self.preview.download, **theme.primary(),
         )
         self.action_button.grid(row=0, column=2, padx=12, pady=12)
@@ -127,7 +122,7 @@ class DownloadView(ctk.CTkFrame):
     def _render_hero(self):
         self.hero_job = None
         width = self.hero_width
-        image = hero_banner(width, HERO_HEIGHT, HERO_TITLE, HERO_SUBTITLE)
+        image = hero_banner(width, HERO_HEIGHT, t("download.hero_title"), t("download.hero_subtitle"))
         self.hero_img = ctk.CTkImage(image, image, size=(width, HERO_HEIGHT))
         self.hero.configure(image=self.hero_img)
 
@@ -142,16 +137,16 @@ class DownloadView(ctk.CTkFrame):
         art_dark = empty_illustration(150, theme.ACCENT[1], "#1A1A21", "#34343F")
         frame.art = ctk.CTkImage(art_light, art_dark, size=(150, 150))  # keep a reference
         ctk.CTkLabel(inner, text="", image=frame.art).grid(row=0, column=0)
-        ctk.CTkLabel(inner, text="Ready when you are", font=theme.font(22, "bold")).grid(row=1, column=0, pady=(10, 6))
+        ctk.CTkLabel(inner, text=t("empty.title"), font=theme.font(22, "bold")).grid(row=1, column=0, pady=(10, 6))
         ctk.CTkLabel(
-            inner, text="Paste a link above and press Fetch. You'll see every\navailable quality before anything downloads.",
+            inner, text=t("empty.text"),
             justify="center", text_color=theme.MUTED, font=theme.font(14),
         ).grid(row=2, column=0)
 
         features = ctk.CTkFrame(inner, fg_color="transparent")
         features.grid(row=3, column=0, pady=(24, 0))
-        for col, (glyph, text) in enumerate((("monitor", "Up to 4K"), ("list", "Whole playlists"),
-                                             ("music", "MP3 audio"))):
+        for col, (glyph, text) in enumerate((("monitor", t("feature.4k")), ("list", t("feature.playlists")),
+                                             ("music", t("feature.mp3")))):
             ctk.CTkLabel(
                 features, text=f"  {text}", image=icon(glyph, 15, theme.ACCENT), compound="left",
                 height=36, corner_radius=18, fg_color=theme.SECONDARY, text_color=theme.TEXT,
@@ -166,7 +161,7 @@ class DownloadView(ctk.CTkFrame):
         self.action_summary.configure(text=summary)
 
     def _show(self, widget, sticky="nsew"):
-        for child in (self.empty_state, self.preview_scroll, self.progress):
+        for child in (self.empty_state, self.preview_scroll):
             child.grid_forget()
         show_bar = widget is self.preview_scroll and bool(self.preview.media and self.preview.media.is_playlist)
         if show_bar:
@@ -199,11 +194,8 @@ class DownloadView(ctk.CTkFrame):
             return
         self._show(self.preview_scroll)
 
-    def show_progress(self):
-        self._show(self.progress, sticky="new")
-
     def set_fetching(self, fetching: bool, busy: bool):
         self.fetch_button.configure(
             state="disabled" if busy else "normal",
-            text="Fetching…" if fetching else "Fetch",
+            text=t("download.fetching") if fetching else t("download.fetch"),
         )

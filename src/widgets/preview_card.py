@@ -3,6 +3,7 @@ from collections.abc import Callable
 import customtkinter as ctk
 
 from config import theme
+from config.i18n import t, tn
 from config.settings import MAX_PLAYLIST_CHECKLIST
 from models.media import MediaInfo, QualityOption
 from services.formatting import format_duration, format_size, quality_tag, truncate
@@ -103,10 +104,11 @@ class QualityChips(ctk.CTkFrame):
     @staticmethod
     def _texts(option: QualityOption, audio_format: str) -> tuple[str, str]:
         if option.audio_only:
-            return "Audio", f"{audio_format} only"
+            return t("quality.audio"), t("quality.audio_detail", format=audio_format)
         if option.height is None:
-            return "Best", "Highest available"
-        detail = f"~{format_size(option.size_bytes)}" if option.size_bytes else quality_tag(option.height)
+            return t("quality.best"), t("quality.best_detail")
+        tag = quality_tag(option.height)
+        detail = f"~{format_size(option.size_bytes)}" if option.size_bytes else (t("quality.tag.auto") if tag == "Auto" else tag)
         return option.label, detail
 
     def select(self, option: QualityOption, notify: bool = True):
@@ -143,7 +145,7 @@ class PreviewCard(ctk.CTkFrame):
         info.grid_columnconfigure(0, weight=1)
 
         self.kind_pill = ctk.CTkLabel(
-            info, text="VIDEO", height=24, corner_radius=12, fg_color=theme.ACCENT_SOFT,
+            info, text=t("preview.video"), height=24, corner_radius=12, fg_color=theme.ACCENT_SOFT,
             text_color=theme.ACCENT_TEXT, font=theme.font(10, "bold"),
         )
         self.kind_pill.grid(row=0, column=0, sticky="w")
@@ -154,13 +156,13 @@ class PreviewCard(ctk.CTkFrame):
         self.meta_label = ctk.CTkLabel(info, text="", anchor="w", text_color=theme.MUTED, font=theme.font(13))
         self.meta_label.grid(row=2, column=0, sticky="ew")
 
-        ctk.CTkLabel(info, text="CHOOSE QUALITY", anchor="w", text_color=theme.SUBTLE,
+        ctk.CTkLabel(info, text=t("preview.choose_quality"), anchor="w", text_color=theme.SUBTLE,
                      font=theme.font(11, "bold")).grid(row=3, column=0, sticky="w", pady=(20, 10))
         self.chips = QualityChips(info, on_change=self._refresh_button)
         self.chips.grid(row=4, column=0, sticky="w")
 
         self.download_button = ctk.CTkButton(
-            info, text="Download", height=48, width=250, corner_radius=14, font=theme.font(15, "bold"),
+            info, text=t("button.download_video"), height=48, width=250, corner_radius=14, font=theme.font(15, "bold"),
             image=icon("download", 18, theme.WHITE), command=self._download, **theme.primary(),
         )
         self.download_button.grid(row=5, column=0, sticky="w", pady=(10, 0))
@@ -174,13 +176,13 @@ class PreviewCard(ctk.CTkFrame):
         head = ctk.CTkFrame(self.playlist_section, fg_color="transparent")
         head.grid(row=1, column=0, sticky="ew", pady=(0, 12))
         head.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(head, text="Videos in this playlist", font=theme.font(15, "bold")).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(head, text=t("preview.playlist_videos"), font=theme.font(15, "bold")).grid(row=0, column=0, sticky="w")
         self.selection_label = ctk.CTkLabel(head, text="", height=24, corner_radius=12, fg_color=theme.SECONDARY,
                                             text_color=theme.MUTED, font=theme.font(12, "bold"))
         self.selection_label.grid(row=0, column=1, sticky="w", padx=12)
         self.select_all_var = ctk.BooleanVar(value=True)
         self.select_all = ctk.CTkCheckBox(
-            head, text="Select all", variable=self.select_all_var, command=self._toggle_all,
+            head, text=t("preview.select_all"), variable=self.select_all_var, command=self._toggle_all,
             font=theme.font(13), checkbox_width=20, checkbox_height=20, corner_radius=6,
             fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER, border_color=theme.SUBTLE,
         )
@@ -198,16 +200,16 @@ class PreviewCard(ctk.CTkFrame):
     def show(self, media: MediaInfo):
         self.media = media
 
-        badge = f"{len(media.entries)} videos" if media.is_playlist else format_duration(media.duration)
+        badge = tn("preview.videos", len(media.entries)) if media.is_playlist else format_duration(media.duration)
         source = rounded_thumbnail(media.thumbnail, THUMB, 16, badge=badge or None)
         self.thumb_img = ctk.CTkImage(source, source, size=THUMB)
         self.thumb.configure(image=self.thumb_img)
 
-        self.kind_pill.configure(text="   PLAYLIST   " if media.is_playlist else "   VIDEO   ")
+        self.kind_pill.configure(text=f"   {t('preview.playlist') if media.is_playlist else t('preview.video')}   ")
         self.title_label.configure(text=truncate(media.title, 110))
         meta = [media.uploader] if media.uploader else []
         if media.is_playlist:
-            meta.append(f"{len(media.entries)} videos")
+            meta.append(tn("preview.videos", len(media.entries)))
         elif media.duration:
             meta.append(format_duration(media.duration))
         self.meta_label.configure(text="  ·  ".join(meta))
@@ -256,7 +258,7 @@ class PreviewCard(ctk.CTkFrame):
             self.entries_list.grid_forget()
             self.select_all.configure(state="disabled")
             self.entries_note.configure(
-                text=f"This playlist is large, so all {len(media.entries)} videos will be downloaded."
+                text=t("preview.large_playlist", n=len(media.entries))
             )
             self.entries_note.grid(row=2, column=0, sticky="nw")
             return
@@ -300,18 +302,19 @@ class PreviewCard(ctk.CTkFrame):
         audio = bool(option and option.audio_only)
         if self.media and self.media.is_playlist:
             count = self.selected_count()
-            self.selection_label.configure(text=f"   {count} of {len(self.media.entries)} selected   ")
-            noun = ("track" if audio else "video") + ("" if count == 1 else "s")
-            text = f"Download {count} {noun}"
+            selected = t("preview.selected", count=count, total=len(self.media.entries))
+            self.selection_label.configure(text=f"   {selected}   ")
+            text = tn("button.download_tracks" if audio else "button.download_videos", count)
         else:
             count = 1
-            text = "Download audio" if audio else "Download video"
+            text = t("button.download_audio") if audio else t("button.download_video")
         enabled = bool(count and option)
         self.download_button.configure(text=text, state="normal" if enabled else "disabled")
         if self.on_state_change and self.media:
             summary = ""
             if self.media.is_playlist and option:
-                summary = f"{count} of {len(self.media.entries)} selected  ·  {QualityChips._texts(option, self.audio_format)[0]}"
+                selected = t("preview.selected", count=count, total=len(self.media.entries))
+                summary = f"{selected}  ·  {QualityChips._texts(option, self.audio_format)[0]}"
             self.on_state_change(self.media.is_playlist, text, enabled, summary)
 
     def download(self):
